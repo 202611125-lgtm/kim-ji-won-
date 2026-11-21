@@ -162,14 +162,149 @@ with tab1:
 
         st.write("**주요 지표 카드**")
         c1, c2, c3, c4 = st.columns(4)
+
+        if env_df is not None and not env_df.empty and "temperature" in env_df.columns:
+            c2.metric("평균 온도", f"{env_df['temperature'].mean():.1f} °C")
+        else:
+            c2.metric("평균 온도", "—")
+
+        if env_df is not None and not env_df.empty and "humidity" in env_df.columns:
+            c3.metric("평균 습도", f"{env_df['humidity'].mean():.1f} %")
+        else:
+            c3.metric("평균 습도", "—")
+
         if growth_df is not None and not growth_df.empty and "생중량" in growth_df.columns:
             c1.metric("총 개체수", f"{len(growth_df)} 개체")
             c4.metric("평균 생중량", f"{growth_df['생중량'].dropna().mean():.3f} g")
         else:
             c1.metric("총 개체수", "—")
             c4.metric("평균 생중량", "—")
-        if env_df is not None and not env_df.empty and "temperature" in env_df.columns:
-            c2.metric("평균 온도", f"{env_df['temperature'].mean():.1f} °C")
+    except Exception as e:
+        st.warning(f"⚠️ 이 부분은 데이터 형식 때문에 표시하지 못했어요: {e}")
+
+with tab2:
+    try:
+        st.header("🌡️ 환경 데이터")
+        if env_df is None or env_df.empty:
+            st.info("환경 데이터가 아직 업로드되지 않았어요. 사이드바에서 환경 CSV를 올려주세요.")
         else:
-            c2.metric("평균 온도", "—")
-        if env_df is not None and not env_df.empty and "humidity" in env_df
+            env_num = [c for c in ["temperature", "humidity", "ph", "ec"] if c in env_df.columns]
+            if env_num:
+                st.subheader("환경 요약 (평균·최소·최대)")
+                summ = env_df[env_num].agg(["mean", "min", "max"]).T
+                summ.columns = ["평균", "최소", "최대"]
+                st.dataframe(summ, width="stretch")
+            else:
+                st.info("온도·습도·pH·EC 같은 숫자 환경 열이 없어서 요약을 표시할 수 없어요.")
+
+            if "time" in env_df.columns and "temperature" in env_df.columns:
+                d = env_df.dropna(subset=["time", "temperature"]).copy()
+                d["날짜"] = d["time"].dt.date
+                daily_t = d.groupby("날짜")["temperature"].mean().reset_index()
+                fig_t = px.line(daily_t, x="날짜", y="temperature", title="일별 평균 온도 변화")
+                fig_t.update_layout(font=dict(family="Malgun Gothic, Apple SD Gothic Neo, sans-serif"))
+                st.plotly_chart(fig_t, width="stretch")
+
+            if "time" in env_df.columns and "humidity" in env_df.columns:
+                d = env_df.dropna(subset=["time", "humidity"]).copy()
+                d["날짜"] = d["time"].dt.date
+                daily_h = d.groupby("날짜")["humidity"].mean().reset_index()
+                fig_h = px.line(daily_h, x="날짜", y="humidity", title="일별 평균 습도 변화")
+                fig_h.update_layout(font=dict(family="Malgun Gothic, Apple SD Gothic Neo, sans-serif"))
+                st.plotly_chart(fig_h, width="stretch")
+
+            if "ph" in env_df.columns and "ec" in env_df.columns:
+                d = env_df.dropna(subset=["time", "ph", "ec"]).copy()
+                d["날짜"] = d["time"].dt.date
+                daily_pe = d.groupby("날짜")[["ph", "ec"]].mean().reset_index()
+                fig_pe = make_subplots(rows=1, cols=2, subplot_titles=("pH", "EC"))
+                fig_pe.add_trace(go.Scatter(x=daily_pe["날짜"], y=daily_pe["ph"], mode="lines", name="pH"), row=1, col=1)
+                fig_pe.add_trace(go.Scatter(x=daily_pe["날짜"], y=daily_pe["ec"], mode="lines", name="EC"), row=1, col=2)
+                fig_pe.update_layout(title="일별 평균 pH·EC 변화", font=dict(family="Malgun Gothic, Apple SD Gothic Neo, sans-serif"))
+                st.plotly_chart(fig_pe, width="stretch")
+
+            with st.expander("환경 데이터 원본 테이블"):
+                st.dataframe(env_df, width="stretch")
+                csv_env = env_df.to_csv(index=False).encode("utf-8-sig")
+                st.download_button("환경 CSV 다운로드", csv_env, file_name=env_file.name, mime="text/csv")
+    except Exception as e:
+        st.warning(f"⚠️ 이 부분은 데이터 형식 때문에 표시하지 못했어요: {e}")
+
+with tab3:
+    try:
+        st.header("📊 생육 결과")
+        if growth_df is None or growth_df.empty:
+            st.info("생육 데이터가 아직 업로드되지 않았어요. 사이드바에서 생육 CSV를 올려주세요.")
+        else:
+            st.write("**🥇 핵심 결과 카드**")
+            c1, c2, c3 = st.columns(3)
+            w = growth_df["생중량"].dropna() if "생중량" in growth_df.columns else pd.Series(dtype=float)
+            if len(w) >= 1:
+                max_id = w.idxmax()
+                min_id = w.idxmin()
+                max_row = growth_df.iloc[int(max_id)]
+                min_row = growth_df.iloc[int(min_id)]
+                c1.metric("평균 생중량", f"{w.mean():.3f} g")
+                c2.metric("최대 개체", f"{max_row['개체번호']} ({w.max():.3f} g)")
+                c3.metric("최소 개체", f"{min_row['개체번호']} ({w.min():.3f} g)")
+            else:
+                c1.metric("평균 생중량", "—")
+                c2.metric("최대 개체", "—")
+                c3.metric("최소 개체", "—")
+
+            st.write("**개체별 생육 비교**")
+            for col in ["생중량", "잎 수", "지상부 길이", "지하부 길이"]:
+                if col not in growth_df.columns or col not in measure_cols:
+                    continue
+                fig = px.bar(growth_df, x="개체번호", y=col, title=f"개체별 평균 {col}")
+                fig.update_layout(font=dict(family="Malgun Gothic, Apple SD Gothic Neo, sans-serif"))
+                st.plotly_chart(fig, width="stretch")
+
+            if "생중량" in growth_df.columns:
+                fig = px.box(growth_df, y="생중량", title="생중량 분포 (박스플롯)")
+                fig.update_layout(font=dict(family="Malgun Gothic, Apple SD Gothic Neo, sans-serif"))
+                st.plotly_chart(fig, width="stretch")
+
+            st.write("**상관관계 분석**")
+            corr_pairs = [("잎 수", "생중량"), ("지상부 길이", "생중량")]
+            for x_col, y_col in corr_pairs:
+                if x_col in growth_df.columns and y_col in growth_df.columns:
+                    d = growth_df[[x_col, y_col]].dropna()
+                    if len(d) >= 2:
+                        coef = np.polyfit(d[x_col], d[y_col], 1)
+                        trend = np.poly1d(coef)
+                        xs = np.linspace(d[x_col].min(), d[x_col].max(), 100)
+                        r = d[x_col].corr(d[y_col])
+                        fig = px.scatter(d, x=x_col, y=y_col, title=f"{x_col} vs {y_col} (r = {r:.2f})")
+                        fig.add_trace(go.Scatter(x=xs, y=trend(xs), mode="lines", name="추세선"))
+                        fig.update_layout(font=dict(family="Malgun Gothic, Apple SD Gothic Neo, sans-serif"))
+                        st.plotly_chart(fig, width="stretch")
+                    else:
+                        st.info(f"{x_col}와 {y_col} 데이터가 2개 이상 없어서 상관관계를 표시할 수 없어요.")
+
+            if "생중량" in growth_df.columns and len(growth_df) >= 4:
+                w = growth_df["생중량"].dropna()
+                if len(w) >= 4:
+                    q75 = w.quantile(0.75)
+                    q25 = w.quantile(0.25)
+                    top = growth_df[growth_df["생중량"] >= q75]
+                    bottom = growth_df[growth_df["생중량"] <= q25]
+                    rows = []
+                    for label, group in [("상위 25%", top), ("하위 25%", bottom)]:
+                        rows.append(
+                            {
+                                "구분": label,
+                                "평균 생중량(g)": f"{group['생중량'].mean():.3f}",
+                                "평균 잎 수": f"{group['잎 수'].mean():.1f}",
+                                "평균 지상부 길이(mm)": f"{group['지상부 길이'].mean():.1f}",
+                                "평균 지하부 길이(mm)": f"{group['지하부 길이'].mean():.1f}",
+                            }
+                        )
+                    st.dataframe(pd.DataFrame(rows), width="stretch")
+
+            with st.expander("생육 데이터 원본 테이블"):
+                st.dataframe(growth_df, width="stretch")
+                csv_growth = growth_df.to_csv(index=False).encode("utf-8-sig")
+                st.download_button("생육 CSV 다운로드", csv_growth, file_name=growth_file.name, mime="text/csv")
+    except Exception as e:
+        st.warning(f"⚠️ 이 부분은 데이터 형식 때문에 표시하지 못했어요: {e}")
